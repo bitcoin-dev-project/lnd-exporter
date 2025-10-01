@@ -1,5 +1,5 @@
-PREFIX = bitdonkey/lnd-exporter
-TAG = 0.1.3
+PREFIX = bitcoindevproject/lnd-exporter-htlcs
+TAG = 0.2.0
 
 BUILD_DIR = build_output
 

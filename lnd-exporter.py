@@ -1,6 +1,7 @@
 import os
 
 from prometheus_client import Gauge, start_http_server
+from prometheus_client.core import GaugeMetricFamily, REGISTRY
 import json
 import http.client
 import ssl
@@ -85,6 +86,20 @@ for labeled_cmd in commands:
     metric = Gauge(label, cmd)
     metric.set_function(make_metric_function(cmd))
     print(f"Metric created: {labeled_cmd}")
+
+class HTLCCollector:
+    def collect(self):
+        resp = lnd.get("/v1/channels")
+        data = json.loads(resp)
+
+        g = GaugeMetricFamily("pending_htlcs", "pending HTLCs", labels=["scid"])
+        for channel in data["channels"]:
+            chan_id = int(channel["chan_id"])
+            short_id = f"{(chan_id>>40)&0xFFFFFF}x{(chan_id>>16)&0xFFFFFF}x{chan_id&0xFFFF}"
+            g.add_metric([short_id], len(channel["pending_htlcs"]))
+        yield g
+
+REGISTRY.register(HTLCCollector())
 
 # Start the server
 server, thread = start_http_server(METRICS_PORT)
