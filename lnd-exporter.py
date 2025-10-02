@@ -43,7 +43,7 @@ class LND:
                 return self.conn.getresponse().read().decode("utf8")
             except Exception:
                 time.sleep(1)
-    
+
     # decode response looking for result, result can be key.path
     def parse(self, endpoint, result):
         response = self.get(endpoint)
@@ -61,14 +61,36 @@ METRICS_PORT = int(os.environ.get("METRICS_PORT", "9332"))
 METRICS = os.environ.get(
     "METRICS",
 '''
-lnd_balance_channels=parse("/v1/balance/channels","balance") 
-lnd_local_balance_channels=parse("/v1/balance/channels","local_balance.sat") 
-lnd_remote_balance_channels=parse("/v1/balance/channels","remote_balance.sat") 
+lnd_balance_channels=parse("/v1/balance/channels","balance")
+lnd_local_balance_channels=parse("/v1/balance/channels","local_balance.sat")
+lnd_remote_balance_channels=parse("/v1/balance/channels","remote_balance.sat")
 lnd_peers=parse("/v1/getinfo","num_peers")
 '''
 )
 
 lnd = LND()
+
+class HTLCCollector:
+    def collect(self):
+        resp = lnd.get("/v1/channels")
+        data = json.loads(resp)
+
+        g = GaugeMetricFamily("pending_htlcs", "pending HTLCs", labels=["scid"])
+        for channel in data["channels"]:
+            chan_id = int(channel["chan_id"])
+            short_id = f"{(chan_id>>40)&0xFFFFFF}x{(chan_id>>16)&0xFFFFFF}x{chan_id&0xFFFF}"
+            g.add_metric([short_id], len(channel["pending_htlcs"]))
+        yield g
+
+class FailedPaymentsCollector:
+    def collect(self):
+        resp = lnd.get("/v1/payments?include_incomplete=true")
+        data = json.loads(resp)
+
+        failed_count = sum(1 for payment in data["payments"] if payment.get("status") == "FAILED")
+        g = GaugeMetricFamily("failed_payments", "Number of payments with status FAILED")
+        g.add_metric([], failed_count)
+        yield g
 
 # Create closure outside the loop
 def make_metric_function(cmd):
@@ -83,23 +105,15 @@ for labeled_cmd in commands:
     if "=" not in labeled_cmd:
         continue
     label, cmd = labeled_cmd.strip().split("=")
-    metric = Gauge(label, cmd)
-    metric.set_function(make_metric_function(cmd))
+    if cmd == "PENDING_HTLCS":
+        REGISTRY.register(HTLCCollector())
+    elif cmd == "FAILED_PAYMENTS":
+        REGISTRY.register(FailedPaymentsCollector())
+    else:
+        metric = Gauge(label, cmd)
+        metric.set_function(make_metric_function(cmd))
     print(f"Metric created: {labeled_cmd}")
 
-class HTLCCollector:
-    def collect(self):
-        resp = lnd.get("/v1/channels")
-        data = json.loads(resp)
-
-        g = GaugeMetricFamily("pending_htlcs", "pending HTLCs", labels=["scid"])
-        for channel in data["channels"]:
-            chan_id = int(channel["chan_id"])
-            short_id = f"{(chan_id>>40)&0xFFFFFF}x{(chan_id>>16)&0xFFFFFF}x{chan_id&0xFFFF}"
-            g.add_metric([short_id], len(channel["pending_htlcs"]))
-        yield g
-
-REGISTRY.register(HTLCCollector())
 
 # Start the server
 server, thread = start_http_server(METRICS_PORT)
