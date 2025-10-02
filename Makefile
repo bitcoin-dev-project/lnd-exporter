@@ -1,4 +1,4 @@
-PREFIX = bitcoindevproject/lnd-exporter-htlcs
+PREFIX = bitcoindevproject/lnd-exporter
 TAG = 0.2.0
 
 BUILD_DIR = build_output
