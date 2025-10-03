@@ -1,10 +1,10 @@
-PREFIX = bitdonkey/lnd-exporter
-TAG = 0.1.3
+PREFIX = bitcoindevproject/lnd-exporter
+TAG = 0.2.0
 
 BUILD_DIR = build_output
 
 container:
-	docker build -t $(PREFIX):$(TAG) .
+	docker buildx build --platform linux/amd64,linux/arm64,linux/armhf -t $(PREFIX):$(TAG) .
 
 push: container
 	docker push $(PREFIX):$(TAG)
